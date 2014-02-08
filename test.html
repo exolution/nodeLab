@@ -13,7 +13,13 @@
 {#each $items }
 <div class="2">
     <div class="name">{$name}{,}{@^abc}</div>
+    {#if $name=='高嵩1'}
     <div class="content">{$content}</div>
+    {#elseif true}
+    <p>11111</p>
+    {#else}
+    <p>22222</p>
+    {/if}
     <div>{$^items.$_index_.name}</div>
     {#each $set}
         <a href="">{$}</a>

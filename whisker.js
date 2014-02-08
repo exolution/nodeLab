@@ -46,16 +46,25 @@ Context.prototype = {
         block.result.push(branchNode);
         block.branchStack.push(branchNode);
     },
-    setElse:function(criteria){
+    setElse:function(criteria,flag){
         var block=this.Block;
-        var elseNode={exp:criteria,index:block.result.length-1};
+
         var branch=block.branchStack[block.branchStack.length-1];
+        var elseNode={exp:criteria,If:branch,flag:flag,type:'else'};
+
+        var prevElse=branch.elseGroup[branch.elseGroup.length-1];
+        if(!prevElse){
+            prevElse=branch;
+        }
+        prevElse.nextIndex=block.result.length;
+        block.result.push(elseNode);
         branch.elseGroup.push(elseNode);
     },
     endBranch:function(){
         var block=this.Block;
-        var branch=block.branchStack[block.branchStack.length-1].pop();
-        branch.elseGroup[branch.elseGroup.length-1].endIndex=block.result.length-1;
+        var branch=block.branchStack.pop();
+        branch.endIndex=block.result.length;
+        branch.elseGroup[branch.elseGroup.length-1].nextIndex=block.result.length;
     },
     newBlock: function (name, args, scope) {
         this.blockStack.push({
@@ -77,6 +86,19 @@ Context.prototype = {
             this.deferEval = false;
         }
     },
+    test:function(scope,exp){
+
+        var self=this;
+        exp = exp.replace(/\$([_a-zA-Z][_a-zA-Z0-9.]*)/g, function (a, b) {
+            var v = self.eval(scope, b);
+            if (typeof v == 'string') {
+                v = '"' + v + '"';
+            }
+            return v;
+        });
+        console.log('exp===========>', exp);
+        return eval(exp);
+    },
     resolveBlock: function (block, scope) {
         ct++;
         block = block || this.Block;
@@ -92,15 +114,49 @@ Context.prototype = {
                 else if (varObj.type == 'method') {
                     result += this.invoke(scope, varObj.exp);
                 }
+                else if(varObj.type=='branch'){
+                    debugger;
+                    var criteria=this.test(scope,varObj.exp);
+                    if(criteria){
+                        var nextElse=varObj.elseGroup[0];
+                        if(nextElse){
+                            nextElse.flag=false;
+                            nextElse.nextIndex=varObj.endIndex;
+                        }
+                    }
+                    else{
 
-                else if (varObj.type = 'block') {
+
+                            i=(varObj.nextIndex||varObj.endIndex)-1;
+
+                    }
+                }
+                else if(varObj.type=='else'){
+                    if(varObj.flag||(varObj.flag==undefined&&this.test(scope,varObj.exp))){
+                        nextElse=block.result[varObj.nextIndex];
+                        if(nextElse.type=='else'){
+                            nextElse.flag=false;
+                            nextElse.nextIndex=nextElse.If.endIndex;
+                        }
+                    }
+                    else {
+                        i=varObj.nextIndex-1;
+                    }
+                }
+                else if (varObj.type == 'block') {
                     if (varObj.blockArgs) {
                         varObj.blockScope = this.eval(scope, varObj.blockArgs);
                         varObj.blockArgs = '';
                     }
 
-
+                    if(!varObj.blockName){
+                        debugger;
+                    }
+                    try{
                     result += GroupManager[varObj.blockName].onClose(this, varObj);
+                    }catch(e){
+                        console.log(e);
+                    }
                 }
             }
             else {
@@ -246,6 +302,14 @@ var GroupHandler = {
             }
 
         }
+        console.log('++++++++++++++',context.idx,context.html.charCodeAt(context.idx+2),'\r'.charCodeAt(0));
+        var nextChar=context.html.charAt(context.idx+1);
+        if(nextChar=='\n'){
+            context.idx++;
+        }
+        if(nextChar=='\r'){
+            context.idx+=2;
+        }
     }
 };
 var EndGroupHandler = {
@@ -256,15 +320,12 @@ var EndGroupHandler = {
                 group.onSkipClose && group.onSkipClose(context);
             } else {
                 if (group.onClose) {
-                    if (!context.deferEval) {
+
                         var result = group.onClose(context, context.Block);
                         if(result!=undefined){
                             context.Block.result.push(result);
                         }
-                    }
-                    else {
-                        context.closeBlock();
-                    }
+
                 }
                 else {
                     console.log('unrecognized group name:' + blockContent);
@@ -274,6 +335,13 @@ var EndGroupHandler = {
         else {
             console.log('unrecognized group name:' + blockContent);
 
+        }
+        var nextChar=context.html.charAt(context.idx+1);
+        if(nextChar=='\n'){
+            context.idx++;
+        }
+        if(nextChar=='\r'){
+            context.idx+=2;
         }
     }
 };
@@ -306,23 +374,28 @@ GroupManager.register('each', {
 
     },
     onClose: function (context, block) {
-        var result = '';
-        var list = block.blockScope;
-        if (list) {
-            if (list.length > 0) {
-                for (var i = 0; i < list.length; i++) {
-                    list[i]._index_ = i;
-                    result += context.resolveBlock(block, list[i]);
+        if(!context.deferEval){
+            var result = '';
+            var list = block.blockScope;
+            if (list) {
+                if (list.length > 0) {
+                    for (var i = 0; i < list.length; i++) {
+                        list[i]._index_ = i;
+                        result += context.resolveBlock(block, list[i]);
+                    }
+                }
+                else {
+                    for (var key in list) {
+                        list[key]._key_ = key;
+                        result += context.resolveBlock(block, list[key]);
+                    }
                 }
             }
-            else {
-                for (var key in list) {
-                    list[key]._key_ = key;
-                    result += context.resolveBlock(block, list[key]);
-                }
-            }
+            return result;
         }
-        return result;
+        else{
+            context.closeBlock();
+        }
     }
 });
 GroupManager.register('if', {
@@ -335,16 +408,8 @@ GroupManager.register('if', {
             context.saveBranch(blockArgs);
         }
         else{
-        var criteria;
-        var exp = blockArgs.replace(/\$([_a-zA-Z][_a-zA-Z0-9.]*)/g, function (a, b, i) {
-            var v = context.eval(context.Block.blockScope, b);
-            if (typeof v == 'string') {
-                v = '"' + v + '"';
-            }
-            return v;
-        });
-        console.log('exp===========>', exp);
-        criteria = eval(exp);
+
+        var criteria = context.test(context.Block.blockScope,blockArgs);
         if (criteria) {
             context.skipMode = false;
             context.skipIndicator = -1;
@@ -371,6 +436,7 @@ GroupManager.register('if', {
 
     },
     onClose:function(context){
+        console.log('end if',context.deferEval);
         if(context.deferEval){
             context.endBranch();
         }
@@ -437,13 +503,20 @@ function resolveChar(ch, context) {
 function render(html, data) {
     var ch = '',
         context = new Context(html, data);
+    try{
     while (context.idx < html.length) {
         ch = html.charAt(context.idx);
         resolveChar(ch, context);
         context.idx++;
 
     }
+    //debugger;
     context.Block.result.push(context.text);
+    }catch(e){
+        console.log(context);
+        var txt=context.html.substring(context.idx-30,context.idx+30);
+        debugger;
+    }
     console.time(2);
 
 
@@ -457,3 +530,30 @@ exports.Context = Context;
 exports.GroupManager = GroupManager;
 exports.BlockMode = BlockMode;
 exports.render = render;
+var Fs = require('fs');
+var frs = Fs.createReadStream('./test.html');
+
+
+frs.on('data', function (data) {
+    var html = data.toString('utf-8');
+    console.time(1);
+    //console.log(html);
+
+    var result =render(html, {
+        name: '松影',
+        content: '花花又一夏',
+        abc: function (a, b, c) {
+            return this.name + 'love' + this.content + '(' + a + ',' + b + ',' + c + ')';
+        },
+        items: [
+            {name: '高嵩', content: '霍雨佳', set: ['1', 2, 3]},
+            {name: '王舒曼', content: '卡儿朵麦', set: [3, 4, 5]}
+        ],
+        lists:[1,2,3,4]
+    });
+
+    console.log(result);
+    console.timeEnd(1);
+
+
+});
