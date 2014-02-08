@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -5,52 +6,60 @@
     <title></title>
 </head>
 <body>
+{#if $name=='松影'}
 <div>{$name}</div>
-{#if $name=='松影'}
+
 <div>{$content}</div>
-
-
+{#each $items }
+<div class="2">
+    <div class="name">{$name}{,}{@^abc}</div>
+    <div class="content">{$content}</div>
+    <div>{$^items.$_index_.name}</div>
+    {#each $set}
+        <a href="">{$}</a>
+    {/each}
+</div>
+{/each}
 {#each $items}
 <div class="2">
     <div class="name">{$name}{@abc}</div>
     <div class="content">{$content}</div>
-    {#each $items}
-        <a href="">{@abc(1,'x',$name)}</a>
+    {#each $set}
+    <a href="">{$}</a>
     {/each}
 </div>
-{#if true}
-<div>{$content}</div>
-
-
+{/each}
 {#each $items}
 <div class="2">
     <div class="name">{$name}{@abc}</div>
     <div class="content">{$content}</div>
-    {#each $items}
-    <a href="">{@abc(1,'x',$name)}</a>
+    {#each $set}
+    <a href="">{$}</a>
     {/each}
 </div>
 {/each}
-{#if $name=='松影'}
-<div>{$content}</div>
-
-
 {#each $items}
 <div class="2">
     <div class="name">{$name}{@abc}</div>
     <div class="content">{$content}</div>
-    {#each $items}
-    <a href="">{@abc(1,'x',$name)}</a>
+    {#each $set}
+    <a href="">{$}</a>
+    {/each}
+</div>
+{/each}
+{#each $items}
+<div class="2">
+    <div class="name">{$name}{@abc}</div>
+    <div class="content">{$content}</div>
+    {#each $set}
+    <a href="">{$}</a>
     {/each}
 </div>
 {/each}
 
-{/if}
-{/if}
+{#each $lists}
+<span>{$}</span>
 {/each}
-
 {/if}
-
-
 </body>
 </html>
