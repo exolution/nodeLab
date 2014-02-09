@@ -66,6 +66,7 @@ frs.on('data', function (data) {
     });
     console.timeEnd(3);
     //console.log(ret);
+
 });
 frs = Fs.createReadStream('./test4.html');
 frs.on('data', function (data) {

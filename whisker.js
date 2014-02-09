@@ -10,6 +10,9 @@ var ParseState = {
     IN_BLOCK: 1,
     BLOCK_BODY: 2
 };
+function peek(array) {
+    return array[array.length - 1];
+}
 function Context(html, scope) {
     this.blockStack = [
         {
@@ -17,7 +20,8 @@ function Context(html, scope) {
             blockName: '',
             blockArgs: '',
             blockScope: scope,
-            type: 'block'
+            type: 'block',
+            branchStack: []
         }
     ];
     this.branchStack = [];
@@ -41,35 +45,38 @@ Context.prototype = {
         this.Block.result.push({ exp: exp, type: type});
     },
     saveBranch: function (criteria) {
-        var branchNode = {type: 'branch', exp: criteria,elseGroup:[]};
-        var block=this.Block;
+        var branchNode = {type: 'branch', exp: criteria, elseGroup: []};
+        var block = this.Block;
         block.result.push(branchNode);
         block.branchStack.push(branchNode);
     },
-    setElse:function(criteria,flag){
-        var block=this.Block;
+    setElse: function (criteria, flag) {
+        var block = this.Block;
 
-        var branch=block.branchStack[block.branchStack.length-1];
-        var elseNode={exp:criteria,If:branch,flag:flag,type:'else'};
+        var branch = block.branchStack[block.branchStack.length - 1];
+        var elseNode = {exp: criteria, If: branch, flag: flag, type: 'else'};
 
-        var prevElse=branch.elseGroup[branch.elseGroup.length-1];
-        if(!prevElse){
-            prevElse=branch;
+        var prevElse = branch.elseGroup[branch.elseGroup.length - 1];
+        if (prevElse && prevElse.flag && !criteria) {
+            throw new Error('else if can\'t after else');
         }
-        prevElse.nextIndex=block.result.length;
+        if (!prevElse) {
+            prevElse = branch;
+        }
+        prevElse.nextIndex = block.result.length;
         block.result.push(elseNode);
         branch.elseGroup.push(elseNode);
     },
-    endBranch:function(){
-        var block=this.Block;
-        var branch=block.branchStack.pop();
-        branch.endIndex=block.result.length;
-        branch.elseGroup[branch.elseGroup.length-1].nextIndex=block.result.length;
+    endBranch: function () {
+        var block = this.Block;
+        var branch = block.branchStack.pop();
+        branch.endIndex = block.result.length;
+        branch.elseGroup[branch.elseGroup.length - 1].nextIndex = block.result.length;
     },
     newBlock: function (name, args, scope) {
         this.blockStack.push({
             result: [],
-            branchStack:[],
+            branchStack: [],
             blockName: name,
             blockArgs: args,
             blockScope: scope || this.Block.blockStack,
@@ -78,7 +85,7 @@ Context.prototype = {
     },
     closeBlock: function () {
         var cur = this.blockStack.pop();
-        if(cur.branchStack.length>0){
+        if (cur.branchStack.length > 0) {
             throw new Error('unclosed if!');
         }
         this.Block.result.push(cur);
@@ -86,9 +93,9 @@ Context.prototype = {
             this.deferEval = false;
         }
     },
-    test:function(scope,exp){
+    test: function (scope, exp) {
 
-        var self=this;
+        var self = this;
         exp = exp.replace(/\$([_a-zA-Z][_a-zA-Z0-9.]*)/g, function (a, b) {
             var v = self.eval(scope, b);
             if (typeof v == 'string') {
@@ -96,7 +103,7 @@ Context.prototype = {
             }
             return v;
         });
-        console.log('exp===========>', exp);
+
         return eval(exp);
     },
     resolveBlock: function (block, scope) {
@@ -114,33 +121,40 @@ Context.prototype = {
                 else if (varObj.type == 'method') {
                     result += this.invoke(scope, varObj.exp);
                 }
-                else if(varObj.type=='branch'){
-                    debugger;
-                    var criteria=this.test(scope,varObj.exp);
-                    if(criteria){
-                        var nextElse=varObj.elseGroup[0];
-                        if(nextElse){
-                            nextElse.flag=false;
-                            nextElse.nextIndex=varObj.endIndex;
-                        }
+                else if (varObj.type == 'branch') {
+
+                    var criteria = this.test(scope, varObj.exp);
+                    if (criteria) {
+                        varObj.flag = true;
+                        /*var nextElse=varObj.elseGroup[0];
+                         if(nextElse){
+                         nextElse.flag=false;
+                         nextElse.nextIndex=varObj.endIndex;
+                         }*/
                     }
-                    else{
+                    else {
 
-
-                            i=(varObj.nextIndex||varObj.endIndex)-1;
+                        varObj.flag = false;
+                        i = (varObj.nextIndex || varObj.endIndex) - 1;
 
                     }
                 }
-                else if(varObj.type=='else'){
-                    if(varObj.flag||(varObj.flag==undefined&&this.test(scope,varObj.exp))){
-                        nextElse=block.result[varObj.nextIndex];
-                        if(nextElse.type=='else'){
-                            nextElse.flag=false;
-                            nextElse.nextIndex=nextElse.If.endIndex;
-                        }
+                else if (varObj.type == 'else') {
+                    if (varObj.If.flag == true) {
+                        i = varObj.If.endIndex - 1;
                     }
                     else {
-                        i=varObj.nextIndex-1;
+                        if (varObj.flag || (varObj.flag == undefined && this.test(scope, varObj.exp))) {
+                            /*nextElse=block.result[varObj.nextIndex];
+                             if(nextElse.type=='else'){
+                             nextElse.flag=false;
+                             nextElse.nextIndex=nextElse.If.endIndex;
+                             }*/
+                            varObj.If.flag = true;
+                        }
+                        else {
+                            i = varObj.nextIndex - 1;
+                        }
                     }
                 }
                 else if (varObj.type == 'block') {
@@ -149,14 +163,10 @@ Context.prototype = {
                         varObj.blockArgs = '';
                     }
 
-                    if(!varObj.blockName){
-                        debugger;
-                    }
-                    try{
+
+
                     result += GroupManager[varObj.blockName].onClose(this, varObj);
-                    }catch(e){
-                        console.log(e);
-                    }
+
                 }
             }
             else {
@@ -204,14 +214,14 @@ Context.prototype = {
             name,
             curObj = scope;
 
-        exp=exp.replace(/\$([^.]*)/g,function(a,b){
-           return curObj[b];
+        exp = exp.replace(/\$([^.]*)/g, function (a, b) {
+            return curObj[b];
         });
-        if(exp.charAt(0)=='^'){
-            curObj=this.scope;
-            exp=exp.slice(1);
+        if (exp.charAt(0) == '^') {
+            curObj = this.scope;
+            exp = exp.slice(1);
         }
-        //console.log(curObj,exp);
+
 
         var tok = exp.split('.');
         if (exp == '') {
@@ -292,23 +302,26 @@ var GroupHandler = {
         var blockName = blockContent.substring(0, split),
             blockArgs = blockContent.slice(split + 1).trim(),
             group = GroupManager[blockName];
-       //console.log('resolve group:', blockName, blockContent, context.skipMode);
+        //console.log('resolve group:', blockName, blockContent, context.skipMode);
         if (group) {
             if (context.skipMode) {
-                group.onSkipBegin && group.onSkipBegin(context);
+                group.onSkipBegin && group.onSkipBegin(context,blockArgs);
             }
             else {
                 group.onBegin && group.onBegin(context, blockArgs);
             }
 
         }
-        console.log('++++++++++++++',context.idx,context.html.charCodeAt(context.idx+2),'\r'.charCodeAt(0));
-        var nextChar=context.html.charAt(context.idx+1);
-        if(nextChar=='\n'){
+
+        var nextChar = context.html.charAt(context.idx + 1);
+        if (nextChar == '\n' || nextChar == '\r') {
             context.idx++;
         }
-        if(nextChar=='\r'){
-            context.idx+=2;
+        if (nextChar == '\r') {
+            context.idx++;
+            if (context.html.charAt(context.idx + 2) == '\n') {
+                context.idx++;
+            }
         }
     }
 };
@@ -321,10 +334,10 @@ var EndGroupHandler = {
             } else {
                 if (group.onClose) {
 
-                        var result = group.onClose(context, context.Block);
-                        if(result!=undefined){
-                            context.Block.result.push(result);
-                        }
+                    var result = group.onClose(context, context.Block);
+                    if (result != undefined) {
+                        context.Block.result.push(result);
+                    }
 
                 }
                 else {
@@ -336,12 +349,12 @@ var EndGroupHandler = {
             console.log('unrecognized group name:' + blockContent);
 
         }
-        var nextChar=context.html.charAt(context.idx+1);
-        if(nextChar=='\n'){
+        var nextChar = context.html.charAt(context.idx + 1);
+        if (nextChar == '\n') {
             context.idx++;
         }
-        if(nextChar=='\r'){
-            context.idx+=2;
+        if (nextChar == '\r') {
+            context.idx += 2;
         }
     }
 };
@@ -351,7 +364,7 @@ BlockMode.addMode('/', EndGroupHandler);
 BlockMode.addMode('@', MethodHandler);
 BlockMode.addMode('!', {
     onEndBlock: function (b, context) {
-        //debugger;
+
     }
 });
 GroupManager.register('each', {
@@ -374,7 +387,7 @@ GroupManager.register('each', {
 
     },
     onClose: function (context, block) {
-        if(!context.deferEval){
+        if (!context.deferEval) {
             var result = '';
             var list = block.blockScope;
             if (list) {
@@ -393,64 +406,130 @@ GroupManager.register('each', {
             }
             return result;
         }
-        else{
+        else {
             context.closeBlock();
         }
     }
 });
 GroupManager.register('if', {
     onSkipBegin: function (context) {
-        context.skipIndicator++;
+        context.Block.branchStack.push(null);
 
     },
     onBegin: function (context, blockArgs) {
-        if(context.deferEval){
+        if (context.deferEval) {
             context.saveBranch(blockArgs);
         }
-        else{
-
-        var criteria = context.test(context.Block.blockScope,blockArgs);
-        if (criteria) {
-            context.skipMode = false;
-            context.skipIndicator = -1;
-        }
         else {
-            context.skipMode = true;
-            context.skipIndicator = 1;
-        }
+
+            var criteria = context.test(context.Block.blockScope, blockArgs);
+            if (criteria) {
+                context.skipMode = false;
+                context.Block.branchStack.push({flag: true})
+            }
+            else {
+                context.skipMode = true;
+                context.Block.branchStack.push({flag: false})
+            }
 
         }
-        console.log('=========', criteria);
+
     },
     onSkipClose: function (context) {
-        if (context.skipIndicator > 0) {
-            context.skipIndicator--;
-        }
-        else if (context.skipIndicator < 0) {
-            context.skipIndicator = 0;
-        }
-        if (context.skipIndicator == 0) {
+        var If=context.Block.branchStack.pop();
+
+        if(If){
             context.skipMode = false;
         }
 
+    },
+    onClose: function (context) {
+
+        if (context.deferEval) {
+            context.endBranch();
+            context.skipMode = false;
+        }
+        else {
+            var If=context.Block.branchStack.pop();
+
+            if(If){
+                context.skipMode = false;
+            }
+            if(If==undefined){
+                throw new Error('unmatched /if');
+            }
+        }
+
+    }
+});
+GroupManager.register('else', {
+    onSkipBegin: function (context) {
+        var branchStack = context.Block.branchStack;
+        var If = branchStack[branchStack.length - 1];
+        if (If) {
+            context.skipMode=If.flag;
+        }
 
     },
-    onClose:function(context){
-        console.log('end if',context.deferEval);
-        if(context.deferEval){
-            context.endBranch();
+    onBegin: function (context, blockArgs) {
+        if (context.deferEval) {
+            context.setElse('', true);
+        }
+        else {
+            var branchStack = context.Block.branchStack;
+
+            var If = branchStack[branchStack.length - 1];
+            if(branchStack.length==0){
+                throw new Error('else need a if');
+            }
+            if (If) {
+                context.skipMode = If.flag;
+            }
+
         }
     }
 });
-GroupManager.register('else',{
-    onBegin:function(context,blockArgs){
+GroupManager.register('elseif', {
+    onSkipBegin:function(context,blockArgs){
 
-        context.setElse('');
-    }
-});
-GroupManager.register('elseif',{
-    onBegin:function(context,blockArgs){
-        context.setElse(blockArgs);
+        var branchStack = context.Block.branchStack,
+            If=branchStack[branchStack.length-1];
+        if (If) {
+            if (!If.flag) {
+                var criteria = context.test(context.Block.blockScope, blockArgs);
+                if (criteria) {
+                    context.skipMode = false;
+                    If.flag = true;
+                }
+            } else{
+                context.skipMode=true;
+            }
+        }
+    },
+    onBegin: function (context, blockArgs) {
+        if (context.deferEval) {
+            context.setElse(blockArgs);
+        }
+        else {
+            debugger;
+            var branchStack = context.Block.branchStack;
+            if(branchStack.length==0){
+                throw new Error('elseif need a if');
+            }
+            var If = branchStack[branchStack.length - 1];
+            if (If) {
+                if (!If.flag) {
+                    var criteria = context.test(context.Block.blockScope, blockArgs);
+                    if (criteria) {
+                        context.skipMode = false;
+                        If.flag = true;
+                    }
+                }
+                else{
+                    context.skipMode=true;
+                }
+            }
+        }
     }
 });
 
@@ -503,26 +582,26 @@ function resolveChar(ch, context) {
 function render(html, data) {
     var ch = '',
         context = new Context(html, data);
-    try{
-    while (context.idx < html.length) {
-        ch = html.charAt(context.idx);
-        resolveChar(ch, context);
-        context.idx++;
+
+    try {
+        while (context.idx < html.length) {
+            ch = html.charAt(context.idx);
+            resolveChar(ch, context);
+            context.idx++;
+        }
+
+        context.Block.result.push(context.text);
+
+        console.time('resolve');
+        var result = context.resolveBlock();
+        console.timeEnd('resolve');
+    } catch (e) {
+        console.log(context.html.substring(context.idx - 30, context.idx), '|', context.html.charAt(context.idx), '|', context.html.substring(context.idx + 1, context.idx + 30));
+        console.log(e.stack)
 
     }
-    //debugger;
-    context.Block.result.push(context.text);
-    }catch(e){
-        console.log(context);
-        var txt=context.html.substring(context.idx-30,context.idx+30);
-        debugger;
-    }
-    console.time(2);
 
 
-    var result = context.resolveBlock();
-    console.timeEnd(2);
-    console.log(ct);
 
     return result;
 }
@@ -536,10 +615,10 @@ var frs = Fs.createReadStream('./test.html');
 
 frs.on('data', function (data) {
     var html = data.toString('utf-8');
-    console.time(1);
-    //console.log(html);
+    console.time('all');
 
-    var result =render(html, {
+
+    var result = render(html, {
         name: '松影',
         content: '花花又一夏',
         abc: function (a, b, c) {
@@ -549,11 +628,11 @@ frs.on('data', function (data) {
             {name: '高嵩', content: '霍雨佳', set: ['1', 2, 3]},
             {name: '王舒曼', content: '卡儿朵麦', set: [3, 4, 5]}
         ],
-        lists:[1,2,3,4]
+        lists: [1, 2, 3, 4]
     });
 
     console.log(result);
-    console.timeEnd(1);
+    console.timeEnd('all');
 
 
 });
