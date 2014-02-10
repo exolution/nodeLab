@@ -6,77 +6,32 @@
 </head>
 <body>
 
-{#if $name=='松影1'}
+{#if $name=='松影'}
 <div>{$name}</div>
 {#if true}
 <div>{$content}</div>
 {#each $items }
 <div class="2">
-    <div class="name">{$name}{,}{@^abc}</div>
-    {#if true||$name=='高嵩'}
+    <div class="name">{$-name}{,}{@^abc}</div>
+    {#if $name=='高嵩'}
 
     <div class="content">{$content}</div>
         {#if $_index_==0}
         <b>xxxxxxxxxx</b>
         {#else}
-        <b>nnnnnn</b>
-
+        <div>{$^items.$_index_.name}</div>
         {/if}
     {#else}
     <p>22222</p>
 
-
+    {#each $set}
+    <a href="">{$}</a>
+    {#if $_index_==1}
+    <b>哈哈哈</b>
     {/if}
-    <div>{$^items.$_index_.name}</div>
-    {#each $set}
-        <a href="">{$}</a>
     {/each}
-</div>
-{/each}
-{#each $items}
-<div class="3">
-    <div class="name">{$name}{@abc}</div>
-    {#if $name=='高嵩1'}
-    <div class="content">{$content}</div>
-    {#elseif $_index_==1}
-    <p>11111</p>
     {/if}
-    {#each $set}
-    <a href="">{$}</a>
-    {/each}
-</div>
-{/each}
-{#each $items}
-<div class="4">
-    <div class="name">{$name}{@abc}</div>
-    {#if $name=='高嵩'}
-    <div class="content">{$content}</div>
-    {#else}
-    <p>11111</p>
 
-
-    {/if}
-    {#each $set}
-    <a href="">{$}</a>
-    {/each}
-</div>
-{/each}
-{#each $items}
-<div class="5">
-    <div class="name">{$name}{@abc}</div>
-    <div class="content">{$content}</div>
-    {#each $set}
-    <a href="">{$}</a>
-    {/each}
-</div>
-{/each}
-{#each $items}
-<div class="6">
-    <div class="name">{$name}{@abc}</div>
-    <div class="content">{$content}</div>
-    {#each $set}
-    <a href="">{$}</a>
-    {/each}
 </div>
 {/each}
 

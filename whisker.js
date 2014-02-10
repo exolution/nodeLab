@@ -10,9 +10,7 @@ var ParseState = {
     IN_BLOCK: 1,
     BLOCK_BODY: 2
 };
-function peek(array) {
-    return array[array.length - 1];
-}
+
 function Context(html, scope) {
     this.blockStack = [
         {
@@ -24,7 +22,6 @@ function Context(html, scope) {
             branchStack: []
         }
     ];
-    this.branchStack = [];
     this.text = '';
     this.idx = 0;
     this.skipMode = false;
@@ -52,7 +49,6 @@ Context.prototype = {
     },
     setElse: function (criteria, flag) {
         var block = this.Block;
-
         var branch = block.branchStack[block.branchStack.length - 1];
         var elseNode = {exp: criteria, If: branch, flag: flag, type: 'else'};
 
@@ -68,10 +64,18 @@ Context.prototype = {
         branch.elseGroup.push(elseNode);
     },
     endBranch: function () {
+
         var block = this.Block;
         var branch = block.branchStack.pop();
+        if(branch){
         branch.endIndex = block.result.length;
-        branch.elseGroup[branch.elseGroup.length - 1].nextIndex = block.result.length;
+        var lastElse=branch.elseGroup[branch.elseGroup.length - 1];
+        if(lastElse){
+            lastElse.nextIndex = block.result.length;
+        }
+        }else{
+            throw new Error('{/if} need a if');
+        }
     },
     newBlock: function (name, args, scope) {
         this.blockStack.push({
@@ -80,7 +84,8 @@ Context.prototype = {
             blockName: name,
             blockArgs: args,
             blockScope: scope || this.Block.blockStack,
-            type: 'block'
+            type: 'block',
+            idx:this.idx
         });
     },
     closeBlock: function () {
@@ -94,7 +99,6 @@ Context.prototype = {
         }
     },
     test: function (scope, exp) {
-
         var self = this;
         exp = exp.replace(/\$([_a-zA-Z][_a-zA-Z0-9.]*)/g, function (a, b) {
             var v = self.eval(scope, b);
@@ -103,78 +107,26 @@ Context.prototype = {
             }
             return v;
         });
-
         return eval(exp);
     },
     resolveBlock: function (block, scope) {
         ct++;
         block = block || this.Block;
         scope = scope || block.blockScope;
-        var result = '';
-        for (var i = 0; i < block.result.length; i++) {
-            var varObj = block.result[i];
 
-            if (typeof varObj == 'object') {
-                if (varObj.type == 'property') {
-                    result += this.eval(scope, varObj.exp);
-                }
-                else if (varObj.type == 'method') {
-                    result += this.invoke(scope, varObj.exp);
-                }
-                else if (varObj.type == 'branch') {
+        var ctx={i:0,result:''};
+        for (ctx.i = 0; ctx.i < block.result.length; ctx.i++) {
+            var varNode = block.result[ctx.i];
+            if (typeof varNode == 'object') {
+                VarNodeManager.handlers[varNode.type].call(this,varNode,scope,ctx);
 
-                    var criteria = this.test(scope, varObj.exp);
-                    if (criteria) {
-                        varObj.flag = true;
-                        /*var nextElse=varObj.elseGroup[0];
-                         if(nextElse){
-                         nextElse.flag=false;
-                         nextElse.nextIndex=varObj.endIndex;
-                         }*/
-                    }
-                    else {
-
-                        varObj.flag = false;
-                        i = (varObj.nextIndex || varObj.endIndex) - 1;
-
-                    }
-                }
-                else if (varObj.type == 'else') {
-                    if (varObj.If.flag == true) {
-                        i = varObj.If.endIndex - 1;
-                    }
-                    else {
-                        if (varObj.flag || (varObj.flag == undefined && this.test(scope, varObj.exp))) {
-                            /*nextElse=block.result[varObj.nextIndex];
-                             if(nextElse.type=='else'){
-                             nextElse.flag=false;
-                             nextElse.nextIndex=nextElse.If.endIndex;
-                             }*/
-                            varObj.If.flag = true;
-                        }
-                        else {
-                            i = varObj.nextIndex - 1;
-                        }
-                    }
-                }
-                else if (varObj.type == 'block') {
-                    if (varObj.blockArgs) {
-                        varObj.blockScope = this.eval(scope, varObj.blockArgs);
-                        varObj.blockArgs = '';
-                    }
-
-
-
-                    result += GroupManager[varObj.blockName].onClose(this, varObj);
-
-                }
             }
             else {
-                result += varObj;
+                ctx.result += varNode;
             }
 
         }
-        return result;
+        return ctx.result;
     },
     invoke: function (scope, exp, bind) {
         var ret = /\((.*)\)/.exec(exp);
@@ -247,11 +199,100 @@ var BlockMode = {
     },
     handlers: {}
 };
+var VarNodeManager={
+    handlers:{},
+    add:function(type,func){
+        this.handlers[type]=func;
+    }
+};
 var GroupManager = {
     register: function (name, func) {
         this[name] = func;
     }
 };
+function resolveChar(ch, context) {
+    var nch, handler;
+    if (context.state != ParseState.IN_BLOCK && ch == '{') {
+        nch = context.html.charAt(context.idx + 1);
+        if (BlockMode.filter.test(nch)) {
+            if (!context.skipMode) {
+                context.Block.result.push(context.text);
+                context.text = '';
+            }
+            context.state = ParseState.IN_BLOCK;
+            context.blockType = nch;
+            handler = BlockMode.handlers[nch];
+            handler.onStartBlock && handler.onStartBlock(context);
+            context.idx++;
+        }
+        else {
+            if (!context.skipMode) {
+                context.text += ch;
+            }
+        }
+    }
+    else if (context.state == ParseState.IN_BLOCK) {
+        if (ch == '}') {
+            context.state = ParseState.OUT_BLOCK;
+            var blockContent = context.blockContent[context.blockType];
+            handler = BlockMode.handlers[context.blockType];
+            context.blockContent[context.blockType] = '';
+            handler.onEndBlock && handler.onEndBlock(blockContent, context);
+
+        }
+        else {
+            handler = BlockMode.handlers[context.blockType];
+            if (handler.onInBlock) {
+                handler.onInBlock(ch, context);
+            }
+            else {
+                context.blockContent[context.blockType] += ch;
+            }
+        }
+    }
+    else {
+        if (!context.skipMode) {
+            context.text += ch;
+        }
+    }
+}
+VarNodeManager.add('method',function(varNode,scope,ctx){
+    ctx.result+=this.invoke(scope, varNode.exp);
+});
+VarNodeManager.add('property',function(varNode,scope,ctx){
+    ctx.result+=this.eval(scope,varNode.exp)
+});
+VarNodeManager.add('branch',function(varNode,scope,ctx){
+    var criteria = this.test(scope, varNode.exp);
+    if (criteria) {
+        varNode.flag = true;
+    }
+    else {
+        varNode.flag = false;
+        ctx.i = (varNode.nextIndex || varNode.endIndex) - 1;
+
+    }
+});
+VarNodeManager.add('else',function(varNode,scope,ctx){
+    if (varNode.If.flag == true) {
+        ctx.i = varNode.If.endIndex - 1;
+    }
+    else {
+        if (varNode.flag || (varNode.flag == undefined && this.test(scope, varNode.exp))) {
+            varNode.If.flag = true;
+        }
+        else {
+            ctx.i = varNode.nextIndex - 1;
+        }
+    }
+});
+VarNodeManager.add('block',function(varNode,scope,ctx){
+    if (varNode.blockArgs) {
+        varNode.blockScope = this.eval(scope, varNode.blockArgs);
+        varNode.blockArgs = '';
+    }
+    ctx.result+=GroupManager[varNode.blockName].onClose(this, varNode);
+});
 var MethodHandler = {
     onEndBlock: function (blockContent, context) {
         if (!context.skipMode) {
@@ -293,6 +334,19 @@ var PropertyHandler = {
     }
 };
 var GroupHandler = {
+    onStartBlock:function(context){
+
+        var result=context.Block.result,
+            prev=result[result.length-1];
+        if(typeof prev=='string'){
+            var len=prev.length,ct=len;
+            while(prev.charAt(--len)==' '){
+                ct--;
+            }
+            result[result.length-1]=prev.slice(0,ct)
+        }
+
+    },
     onEndBlock: function (blockContent, context) {
 
         var split = blockContent.indexOf(' ');
@@ -302,7 +356,7 @@ var GroupHandler = {
         var blockName = blockContent.substring(0, split),
             blockArgs = blockContent.slice(split + 1).trim(),
             group = GroupManager[blockName];
-        //console.log('resolve group:', blockName, blockContent, context.skipMode);
+
         if (group) {
             if (context.skipMode) {
                 group.onSkipBegin && group.onSkipBegin(context,blockArgs);
@@ -312,9 +366,11 @@ var GroupHandler = {
             }
 
         }
-
+        else{
+            console.log('Warning:unidentified group name:' + blockContent);
+        }
         var nextChar = context.html.charAt(context.idx + 1);
-        if (nextChar == '\n' || nextChar == '\r') {
+        if (nextChar == '\n') {
             context.idx++;
         }
         if (nextChar == '\r') {
@@ -326,6 +382,17 @@ var GroupHandler = {
     }
 };
 var EndGroupHandler = {
+    onStartBlock:function(context){
+        var result=context.Block.result,
+            prev=result[result.length-1];
+        if(typeof prev=='string'){
+            var len=prev.length,ct=len;
+            while(prev.charAt(--len)==' '){
+                ct--;
+            }
+            result[result.length-1]=prev.slice(0,ct)
+        }
+    },
     onEndBlock: function (blockContent, context) {
         var group = GroupManager[blockContent];
         if (group) {
@@ -341,12 +408,12 @@ var EndGroupHandler = {
 
                 }
                 else {
-                    console.log('unrecognized group name:' + blockContent);
+                    console.log('Warning:group "' + blockContent+'" need a onClose Handler');
                 }
             }
         }
         else {
-            console.log('unrecognized group name:' + blockContent);
+            console.log('Warning:unidentified group name:' + blockContent);
 
         }
         var nextChar = context.html.charAt(context.idx + 1);
@@ -354,7 +421,10 @@ var EndGroupHandler = {
             context.idx++;
         }
         if (nextChar == '\r') {
-            context.idx += 2;
+            context.idx++;
+            if (context.html.charAt(context.idx + 2) == '\n') {
+                context.idx++;
+            }
         }
     }
 };
@@ -367,6 +437,7 @@ BlockMode.addMode('!', {
 
     }
 });
+
 GroupManager.register('each', {
     onBegin: function (context, blockArgs) {
         if (blockArgs.charAt(0) == '$') {
@@ -387,6 +458,7 @@ GroupManager.register('each', {
 
     },
     onClose: function (context, block) {
+        if(block.blockName=='each'){
         if (!context.deferEval) {
             var result = '';
             var list = block.blockScope;
@@ -409,6 +481,10 @@ GroupManager.register('each', {
         else {
             context.closeBlock();
         }
+        }
+        else{
+            throw new Error('unmatched {/each}');
+        }
     }
 });
 GroupManager.register('if', {
@@ -421,15 +497,14 @@ GroupManager.register('if', {
             context.saveBranch(blockArgs);
         }
         else {
-
             var criteria = context.test(context.Block.blockScope, blockArgs);
             if (criteria) {
                 context.skipMode = false;
-                context.Block.branchStack.push({flag: true})
+                context.Block.branchStack.push({flag: true});
             }
             else {
                 context.skipMode = true;
-                context.Block.branchStack.push({flag: false})
+                context.Block.branchStack.push({flag: false});
             }
 
         }
@@ -451,7 +526,6 @@ GroupManager.register('if', {
         }
         else {
             var If=context.Block.branchStack.pop();
-
             if(If){
                 context.skipMode = false;
             }
@@ -459,7 +533,6 @@ GroupManager.register('if', {
                 throw new Error('unmatched /if');
             }
         }
-
     }
 });
 GroupManager.register('else', {
@@ -533,52 +606,7 @@ GroupManager.register('elseif', {
     }
 });
 
-function resolveChar(ch, context) {
-    var nch, handler;
-    if (context.state != ParseState.IN_BLOCK && ch == '{') {
-        nch = context.html.charAt(context.idx + 1);
-        if (BlockMode.filter.test(nch)) {
-            if (!context.skipMode) {
-                context.Block.result.push(context.text);
-                context.text = '';
-            }
-            context.state = ParseState.IN_BLOCK;
-            context.blockType = nch;
-            //handler = BlockMode.handlers[nch];
-            //handler.onStartBlock && handler.onStartBlock(context);
-            context.idx++;
-        }
-        else {
-            if (!context.skipMode) {
-                context.text += ch;
-            }
-        }
-    }
-    else if (context.state == ParseState.IN_BLOCK) {
-        if (ch == '}') {
-            context.state = ParseState.OUT_BLOCK;
-            var blockContent = context.blockContent[context.blockType];
-            handler = BlockMode.handlers[context.blockType];
-            context.blockContent[context.blockType] = '';
-            handler.onEndBlock && handler.onEndBlock(blockContent, context);
 
-        }
-        else {
-            handler = BlockMode.handlers[context.blockType];
-            if (handler.onInBlock) {
-                handler.onInBlock(ch, context);
-            }
-            else {
-                context.blockContent[context.blockType] += ch;
-            }
-        }
-    }
-    else {
-        if (!context.skipMode) {
-            context.text += ch;
-        }
-    }
-}
 function render(html, data) {
     var ch = '',
         context = new Context(html, data);
@@ -589,7 +617,9 @@ function render(html, data) {
             resolveChar(ch, context);
             context.idx++;
         }
-
+        if(context.blockStack.length>1){
+            console.log('{#'+context.Block.blockName+'} need a close block "{/'+context.Block.blockName+'}"');
+        }
         context.Block.result.push(context.text);
 
         console.time('resolve');
