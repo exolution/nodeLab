@@ -328,7 +328,7 @@ var PropertyHandler = {
             }
             else {
                 context.text += '{' + context.blockType + context.blockContent[context.blockType] + ch;
-
+                context.state=ParseState.OUT_BLOCK;
             }
         }
     }
@@ -584,7 +584,6 @@ GroupManager.register('elseif', {
             context.setElse(blockArgs);
         }
         else {
-            debugger;
             var branchStack = context.Block.branchStack;
             if(branchStack.length==0){
                 throw new Error('elseif need a if');
@@ -655,7 +654,7 @@ frs.on('data', function (data) {
             return this.name + 'love' + this.content + '(' + a + ',' + b + ',' + c + ')';
         },
         items: [
-            {name: '高嵩', content: '霍雨佳', set: ['1', 2, 3]},
+            {name: '高嵩', content: '123', set: ['1', 2, 3]},
             {name: '王舒曼', content: '卡儿朵麦', set: [3, 4, 5]}
         ],
         lists: [1, 2, 3, 4]
